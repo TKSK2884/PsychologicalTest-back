@@ -225,7 +225,7 @@ async function searchLinkedId(userId: string): Promise<string> {
     return id;
 }
 
-app.post("/login", loginHandler);
+app.post("/memeber/login", loginHandler);
 async function loginHandler(req: Request, res: any) {
     if (connection == null) {
         return res.status(500).json({
@@ -272,8 +272,8 @@ async function loginHandler(req: Request, res: any) {
     });
 }
 
-app.post("/join", joinHandler);
-async function joinHandler(req: Request, res: any) {
+app.post("/memeber/join", joinHandler);
+async function joinHandler(req: Request, res: any): Promise<any> {
     if (connection == null) {
         return res.status(500).json({
             errorCode: ERROR_DB_INVALID,
@@ -534,8 +534,8 @@ async function testResultHandler(req, res) {
     let params: any = testFile.settings.parameters;
     let paramsScore: { [k: string]: number } = {};
 
-    Object.keys(params).forEach(function (v) {
-        let targetKey: string = params[v];
+    Object.keys(params).forEach((k: string) => {
+        let targetKey: string = params[k];
         paramsScore[targetKey] = 0;
     });
 
@@ -576,11 +576,12 @@ async function testResultHandler(req, res) {
                 {
                     role: "system",
                     content: `You will play the role of system and psychology advisor.
-                        The data given from the user is a random classification of the propensity of psychological test results.
+                    The data given from the user is a random classification of the propensity of psychological test results.
                         Look at the results and tell me the results of predicting the person's personality or behavior.
                         There are values that express propensity from 0 to 30, and the higher the value, the closer the propensity,
                         and avoid mentioning the numerical value and the higher the value, the closer the propensity.
                         Start with the word "you" and say it like you do to someone who's been tested. 
+                        and You can predict your personality and behavior.Please don't include that".
                         Please translate this into Korean only`,
                 },
                 {
@@ -598,14 +599,11 @@ async function testResultHandler(req, res) {
         let testResult: string =
             completion.data.choices[0].message?.content ?? "";
 
-        if (!isNaN(Number(userId))) {
-            if (userId == "") {
-            } else {
-                await connection.query(
-                    "INSERT INTO `test_result` (`user_id`, `content`,`select_test`) VALUES (?, ?,?)",
-                    [userId, testResult, selectTest]
-                );
-            }
+        if (!isNaN(Number(userId)) && userId === "") {
+            await connection.query(
+                "INSERT INTO `test_result` (`user_id`, `content`, `select_test`) VALUES (?, ?, ?)",
+                [userId, testResult, selectTest]
+            );
 
             console.log(userId);
         }
