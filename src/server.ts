@@ -13,7 +13,7 @@ import test from "node:test";
 import { promises } from "dns";
 
 const app = express();
-const port = 3000;
+const port = 8880;
 
 let connection: mysql.Connection;
 
