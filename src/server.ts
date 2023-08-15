@@ -42,7 +42,7 @@ const ERROR_API_KEY_INVALID: number = 303;
 async function init() {
     connection = await mysql.createConnection({
         host: process.env.DB_SERVER_ADDR,
-        user: process.env.DB_User,
+        user: process.env.DB_USER,
         password: process.env.DB_PASSWORD,
         database: process.env.DB,
     });
