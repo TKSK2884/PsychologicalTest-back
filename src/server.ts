@@ -599,13 +599,11 @@ async function testResultHandler(req, res) {
         let testResult: string =
             completion.data.choices[0].message?.content ?? "";
 
-        if (!isNaN(Number(userId)) && userId === "") {
+        if (!isNaN(Number(userId)) && userId !== "") {
             await connection.query(
                 "INSERT INTO `test_result` (`user_id`, `content`, `select_test`) VALUES (?, ?, ?)",
                 [userId, testResult, selectTest]
             );
-
-            console.log(userId);
         }
 
         return res.status(200).json({
