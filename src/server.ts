@@ -431,7 +431,6 @@ async function testHandler(req, res) {
         )) as mysql.RowDataPacket[];
 
         if (result.length == 0) {
-            // result.length == 0 이면 DB에 progressToken이 없는 것 클라이언트의 토큰값은 존재
             await connectPool.query(
                 "INSERT INTO `test_progress` (`token`, `select_test`) VALUES (?,?)",
                 [progressToken, selectTest]
@@ -560,7 +559,7 @@ async function testUpdateHandler(req, res) {
             "UPDATE `test_progress` SET `progress` = COALESCE(`progress`, 0) + ? WHERE `token` = ?",
             [updatedProgress, token]
         );
-
+        //여기 뭔가 이상함
         return res.status(200).json({ success: true });
     }
 
@@ -670,7 +669,8 @@ async function testResultHandler(req, res) {
     for (let i = 0; i < arrayLength; i++) {
         let select: number = convertedProcessArray[i];
 
-        let selectParams = testFile.questions[i].selection[select].params;
+        let selectParams = testFile.questions[i].selection[select].params; // 선택지보다 적으면 오류가 나서 터짐
+        // 해결해야됨
         let paramsKey: string[] = Object.keys(selectParams);
 
         for (let j: number = 0; j < paramsKey.length; j++) {
@@ -843,7 +843,7 @@ async function testResultSaveHandler(req, res) {
     }
 
     await connectPool.query(
-        "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES ((SELECT `id` FROM `test_result` WHERE `token` = ?), (SELECT `account_id` FROM `access_token` WHERE `token` = ?))",
+        "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES ((SELECT `id` FROM `test_result` WHERE `token` = ? LIMIT 1), (SELECT `account_id` FROM `access_token` WHERE `token` = ? LIMIT 1))",
         [saveResultToken, accessToken]
     );
 
