@@ -10,10 +10,22 @@ import crypto from "crypto";
 import { Data, ResultObject, indexingString } from "../structure/type";
 import https from "https";
 
+import { connectPool, init } from "./routes/db";
+import { testHandler } from "./routes/test";
+
+import {
+    ERROR_USER_INVALID,
+    ERROR_MISSING_VALUE,
+    ERROR_RESULT_INVALID,
+    ERROR_DUPLICATE_DATA,
+    ERROR_NOT_MATCHED,
+    ERROR_DB_INVALID,
+    ERORR_BAD_REQUEST,
+    ERROR_API_KEY_INVALID,
+} from "./routes/error-message";
+
 const app = express();
 const port = 8443;
-
-let connectPool: mysql.Pool;
 
 const mySalt: string | undefined = process.env.SALT;
 
@@ -21,40 +33,27 @@ dotenv.config();
 
 app.use(cors());
 app.use(express.json());
+app.use(mindMiddleware);
 
 const configuration = new Configuration({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
 const openai = new OpenAIApi(configuration);
-const ERROR_USER_INVALID: number = 101; //유저정보가 없음
-const ERROR_MISSING_VALUE: number = 102; //필수값이 없음
 
-const ERROR_RESULT_INVALID: number = 201; //결과요소가 없음
-const ERROR_DUPLICATE_DATA: number = 202; //중복된 데이터
-const ERROR_NOT_MATCHED: number = 203; //결과요소와 겹치지 않음
+// const ERROR_USER_INVALID: number = 101; //유저정보가 없음
+// const ERROR_MISSING_VALUE: number = 102; //필수값이 없음
 
-const ERROR_DB_INVALID: number = 301; //DB연결실패
-const ERORR_BAD_REQUEST: number = 302; //잘못된 요청
-const ERROR_API_KEY_INVALID: number = 303; //API키가 없음
+// const ERROR_RESULT_INVALID: number = 201; //결과요소가 없음
+// const ERROR_DUPLICATE_DATA: number = 202; //중복된 데이터
+// const ERROR_NOT_MATCHED: number = 203; //결과요소와 겹치지 않음
 
-async function init() {
-    connectPool = await mysql.createPool({
-        host: process.env.DB_SERVER_ADDR,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB,
-        enableKeepAlive: true,
-        connectionLimit: 10,
-    });
-
-    console.log("DB Connection successful?:", connectPool != null);
-}
-
+// const ERROR_DB_INVALID: number = 301; //DB연결실패
+// const ERORR_BAD_REQUEST: number = 302; //잘못된 요청
+// const ERROR_API_KEY_INVALID: number = 303; //API키가 없음
 init();
 
-app.post("/kakao/token", kakaoTokenHandler);
-async function kakaoTokenHandler(req, res) {
+async function mindMiddleware(req, res, next) {
     if (connectPool == null) {
         return res.status(500).json({
             errorCode: ERROR_DB_INVALID,
@@ -62,6 +61,52 @@ async function kakaoTokenHandler(req, res) {
         });
     }
 
+    let accessToken: string =
+        (req.query.accessToken as string) ?? req.body.accessToken ?? "";
+
+    if (accessToken != "") {
+        let result = await getUserInfo(accessToken);
+
+        if (result == null) {
+            return res.status(401).json({
+                errorCode: ERROR_DB_INVALID,
+                error: "Access Token is wrong",
+            });
+        }
+
+        res.locals.account = result;
+    }
+
+    next();
+}
+
+async function getUserInfo(
+    accessToken: string
+): Promise<{ nickname: string; id: string } | null> {
+    if (accessToken == "") {
+        return null;
+    }
+
+    let [result] = (await connectPool.query(
+        "SELECT a.`nickname`,a.`id` FROM `access_token` AS `at`" +
+            " LEFT JOIN `account` AS `a` ON `at`.`account_id` = `a`.id" +
+            " WHERE `at`.`token` = ?",
+        [accessToken]
+    )) as mysql.RowDataPacket[];
+
+    if (result.length == 0) {
+        return null;
+    }
+
+    let userInfo: { nickname: string; id: string } = {
+        nickname: result[0].nickname ?? "",
+        id: result[0].id ?? "",
+    };
+    return userInfo;
+}
+
+app.post("/kakao/token", kakaoTokenHandler);
+async function kakaoTokenHandler(req, res) {
     let code: string = req.body.code;
 
     if ((code ?? "") == "") {
@@ -127,7 +172,8 @@ async function kakaoTokenHandler(req, res) {
     }
 
     let [result] = (await connectPool.query(
-        "SELECT * FROM `linked_user` WHERE `access_token` = ? AND `user_nickname` = ? AND `linked_service` = ?",
+        "SELECT * FROM `linked_user` WHERE `access_token` = ? " +
+            "AND `user_nickname` = ? AND `linked_service` = ?",
         [fetchedID, fetchedNickname, linkService]
     )) as mysql.RowDataPacket[];
 
@@ -151,7 +197,9 @@ async function kakaoTokenHandler(req, res) {
     }
 
     await connectPool.query(
-        "INSERT INTO `linked_user` (`access_token`, `user_nickname`, `linked_service`) VALUES (?,?,?)",
+        "INSERT INTO `linked_user`" +
+            " (`access_token`, `user_nickname`, `linked_service`)" +
+            " VALUES (?,?,?)",
         [fetchedID, fetchedNickname, linkService]
     );
 
@@ -165,7 +213,9 @@ async function kakaoTokenHandler(req, res) {
     }
 
     await connectPool.query(
-        "INSERT INTO `account` (`social_linked_id`, `nickname` , `user_type`) VALUES (?,?,?)",
+        "INSERT INTO `account` " +
+            "(`social_linked_id`, `nickname` , `user_type`)" +
+            " VALUES (?,?,?)",
         [socialLinkedID, fetchedNickname, userType]
     );
 
@@ -223,36 +273,12 @@ async function searchLinkedId(userId: string): Promise<string> {
     if (result.length == 0) {
         return "";
     }
-    let id: string = result[0].id;
+    let id: string = result[0].id ?? "";
     return id;
-}
-
-async function checkAccessToken(accessToken: string): Promise<boolean> {
-    if (accessToken == "") {
-        return false;
-    }
-
-    let [result] = (await connectPool.query(
-        "SELECT * FROM `access_token` WHERE `token` = ?",
-        [accessToken]
-    )) as mysql.RowDataPacket[];
-
-    if (result.length == 0) {
-        return false;
-    }
-
-    return true;
 }
 
 app.post("/memeber/login", loginHandler);
 async function loginHandler(req: Request, res: any) {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
-
     let fetchedBody: any = req.body;
 
     let fetchedID: string = fetchedBody?.id ?? "";
@@ -292,13 +318,6 @@ async function loginHandler(req: Request, res: any) {
 
 app.post("/memeber/join", joinHandler);
 async function joinHandler(req: Request, res: any): Promise<any> {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
-
     let fetchedBody: any = req.body;
 
     let fetchedID: string = fetchedBody?.id ?? "";
@@ -318,12 +337,10 @@ async function joinHandler(req: Request, res: any): Promise<any> {
     )) as mysql.RowDataPacket[];
 
     if (result.length != 0) {
-        let resultData = result[0];
+        let resultUserID: string = result[0].user_id ?? "";
+        let resultNickname: string = result[0].nickname ?? "";
 
-        if (
-            resultData.user_id == fetchedID ||
-            resultData.nickname == fetchedNickname
-        )
+        if (resultUserID == fetchedID || resultNickname == fetchedNickname)
             return res.status(400).json({
                 errorCode: ERROR_DUPLICATE_DATA,
                 error: "ID or nickname already exists",
@@ -352,148 +369,112 @@ async function joinHandler(req: Request, res: any): Promise<any> {
 
 app.get("/member/info", memberInfoHandler);
 async function memberInfoHandler(req, res) {
-    let accessToken: string = req.query.accessToken ?? "";
-
-    if (accessToken == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing token value",
-        });
-    }
-
-    let [result] = (await connectPool.query(
-        "SELECT a.`nickname` FROM `access_token` AS `at` LEFT JOIN `account` AS `a` ON `at`.`account_id` = `a`.id WHERE `at`.`token` = ?",
-        [accessToken]
-    )) as mysql.RowDataPacket[];
-
-    if (result.length == 0) {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing token value",
-        });
-    }
-
-    let nickname: string = result[0].nickname;
-
-    console.log(nickname);
+    let nickname: string = res.locals.account?.nickname ?? "";
 
     return res.status(200).json({
         nickname: nickname,
         success: true,
     });
 }
+
 app.get("/test", testHandler);
-async function testHandler(req, res) {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
+// async function testHandler(req, res) {
+//     let progressToken: string = req.query.progressToken ?? "";
+//     let selectTest: string = req.query.selectTest ?? "";
 
-    let progressToken: string = req.query.progressToken ?? "";
-    let selectTest: string = req.query.selectTest ?? "";
+//     console.log(progressToken, selectTest);
 
-    if (selectTest == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing value",
-        });
-    }
+//     if (selectTest == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing value",
+//         });
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT * FROM `test_list` WHERE `id` = ?",
-        [selectTest]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT * FROM `test_list` WHERE `id` = ?",
+//         [selectTest]
+//     )) as mysql.RowDataPacket[];
 
-    let testFile = JSON.parse(result[0].test_content);
+//     let testFile = JSON.parse(result[0].test_content);
 
-    if (Object.keys(testFile).length == 0) {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing test file",
-        });
-    }
+//     if (Object.keys(testFile).length == 0) {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing test file",
+//         });
+//     }
 
-    let selectedTestName: string = result[0].test_name;
+//     let selectedTestName: string = result[0].test_name;
 
-    if (selectedTestName == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing value",
-        });
-    }
+//     if (selectedTestName == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing value",
+//         });
+//     }
 
-    if (progressToken != "") {
-        let [result] = (await connectPool.query(
-            "SELECT `progress`, `select_test` FROM `test_progress` WHERE `token` = ?",
-            [progressToken]
-        )) as mysql.RowDataPacket[];
+//     if (progressToken != "" && selectTest != "") {
+//         let [result] = (await connectPool.query(
+//             "SELECT `progress` FROM `test_progress` WHERE `token` = ? AND `select_test` = ?",
+//             [progressToken, selectTest]
+//         )) as mysql.RowDataPacket[];
 
-        if (result.length == 0) {
-            await connectPool.query(
-                "INSERT INTO `test_progress` (`token`, `select_test`) VALUES (?,?)",
-                [progressToken, selectTest]
-            );
+//         if (result.length == 0) {
+//             await connectPool.query(
+//                 "INSERT INTO `test_progress` (`token`, `select_test`) VALUES (?,?)",
+//                 [progressToken, selectTest]
+//             );
 
-            return res.status(200).json({
-                token: progressToken,
-                test: testFile,
-                test_name: selectedTestName,
-                success: true,
-            });
-        }
+//             let [result] = (await connectPool.query(
+//                 "SELECT LAST_INSERT_ID() AS `id`"
+//             )) as mysql.RowDataPacket[];
 
-        if (result.length != 0) {
-            let progress: string = result[0].progress ?? "";
+//             let progressID: string = result[0].id;
 
-            let selectedTest: string = result[0].select_test ?? "";
+//             return res.status(200).json({
+//                 progressID: progressID,
+//                 token: progressToken,
+//                 test: testFile,
+//                 test_name: selectedTestName,
+//                 success: true,
+//             });
+//         }
 
-            if (selectedTest != selectTest) {
-                return res.status(500).json({
-                    errorCode: ERROR_NOT_MATCHED,
-                    error: "Not matched test",
-                });
-            }
+//         if (result.length != 0) {
+//             let progress: string = result[0].progress ?? "";
 
-            return res.status(200).json({
-                success: true,
-                test: testFile,
-                test_name: selectedTestName,
-                progress: progress == "" ? "0" : progress,
-            });
-        }
-    }
+//             return res.status(200).json({
+//                 success: true,
+//                 test: testFile,
+//                 test_name: selectedTestName,
+//                 progress: progress ?? "",
+//             });
+//         }
+//     }
 
-    let randomizedToken: string =
-        Math.random().toString() + new Date().getDate().toString();
-    randomizedToken = crypto
-        .createHash("sha256")
-        .update(randomizedToken)
-        .digest("hex");
+//     let randomizedToken: string =
+//         Math.random().toString() + new Date().getDate().toString();
+//     randomizedToken = crypto
+//         .createHash("sha256")
+//         .update(randomizedToken)
+//         .digest("hex");
 
-    await connectPool.query(
-        "INSERT INTO `test_progress` (`token`, `select_test`) VALUES (?,?)",
-        [randomizedToken, selectTest]
-    );
+//     await connectPool.query(
+//         "INSERT INTO `test_progress` (`token`, `select_test`) VALUES (?,?)",
+//         [randomizedToken, selectTest]
+//     );
 
-    return res.status(200).json({
-        token: randomizedToken,
-        test: testFile,
-        test_name: selectedTestName,
-        success: true,
-    });
-}
+//     return res.status(200).json({
+//         token: randomizedToken, // 진행도 토큰
+//         test: testFile,
+//         test_name: selectedTestName,
+//         success: true,
+//     });
+// }
 
 app.get("/test/list", testListHandler);
 async function testListHandler(req, res) {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
-
     let loadTestList: string = req.query.loadTestList ?? "";
 
     if (loadTestList == "") {
@@ -529,17 +510,12 @@ async function testListHandler(req, res) {
 
 app.post("/test/update", testUpdateHandler);
 async function testUpdateHandler(req, res) {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
-    let token: string = req.body.token ?? ""; //progressToken으로 바꿔야함
+    let progressToken: string = req.body.token ?? "";
     let updatedProgress: number = req.body.progress;
+    let selectTest: string = req.body.selectTest;
 
     if (
-        token == "" ||
+        progressToken == "" ||
         updatedProgress == null ||
         updatedProgress == undefined
     ) {
@@ -550,22 +526,23 @@ async function testUpdateHandler(req, res) {
     }
 
     let [result] = (await connectPool.query(
-        "SELECT `progress` FROM `test_progress` WHERE `token` = ?",
-        [token]
+        "SELECT `progress` FROM `test_progress` WHERE `token` = ? AND `select_test` = ?",
+        [progressToken, selectTest]
     )) as mysql.RowDataPacket[];
 
     if (result[0].progress == null) {
         await connectPool.query(
-            "UPDATE `test_progress` SET `progress` = COALESCE(`progress`, 0) + ? WHERE `token` = ?",
-            [updatedProgress, token]
+            "UPDATE `test_progress` SET `progress`" +
+                " = COALESCE(`progress`, 0) + ? WHERE `token` = ? AND `select_test` = ?",
+            [updatedProgress, progressToken, selectTest]
         );
-        //여기 뭔가 이상함
         return res.status(200).json({ success: true });
     }
 
     await connectPool.query(
-        "UPDATE `test_progress` SET `progress` = CONCAT(`progress`, ?) WHERE `token` = ?",
-        [updatedProgress, token]
+        "UPDATE `test_progress` SET " +
+            "`progress` = CONCAT(`progress`, ?) WHERE `token` = ? AND `select_test` = ?",
+        [updatedProgress, progressToken, selectTest]
     );
 
     return res.status(200).json({ success: true });
@@ -573,26 +550,19 @@ async function testUpdateHandler(req, res) {
 
 app.post("/test/result", testResultHandler);
 async function testResultHandler(req, res) {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
-
     let progressToken: string = req.body.progressToken ?? "";
-    let accessToken: string = req.body.accessToken ?? "";
+    let selectTest: string = req.body.selectTest ?? "";
 
-    if (progressToken == "") {
+    if (progressToken == "" || selectTest == "") {
         return res.status(400).json({
             errorCode: ERROR_MISSING_VALUE,
-            error: "Missing progressToken value",
+            error: "Missing progressToken or selectTest",
         });
     }
 
     let [result] = (await connectPool.query(
-        "SELECT * FROM `test_progress` WHERE `token` = ?",
-        [progressToken]
+        "SELECT * FROM `test_progress` WHERE `token` = ? AND `select_test` = ? AND `status` = 0",
+        [progressToken, selectTest]
     )) as mysql.RowDataPacket[];
 
     console.log(result);
@@ -609,15 +579,15 @@ async function testResultHandler(req, res) {
     let finished: number = 1;
 
     await connectPool.query(
-        "UPDATE `test_progress` SET `status` = ? WHERE `token` = ?",
-        [finished, progressToken]
+        "UPDATE `test_progress` SET `status` = ? WHERE `token` = ? AND `select_test` = ?",
+        [finished, progressToken, selectTest]
     );
 
     let progress: string = result[0].progress ?? "";
-    let selectTest: string = result[0].select_test ?? "";
+    // let selectTest: string = result[0].select_test ?? "";
     let timeDate: string = result[0].time_date ?? "";
 
-    if (progress == "" || selectTest == "" || timeDate == "") {
+    if (progress == "" || timeDate == "") {
         return res.status(400).json({
             errorCode: ERROR_MISSING_VALUE,
             error: "Missing progress value",
@@ -667,10 +637,9 @@ async function testResultHandler(req, res) {
     let arrayLength: number = testFile.questions.length;
 
     for (let i = 0; i < arrayLength; i++) {
-        let select: number = convertedProcessArray[i];
+        let select: number = convertedProcessArray[i] ?? 0;
 
-        let selectParams = testFile.questions[i].selection[select].params; // 선택지보다 적으면 오류가 나서 터짐
-        // 해결해야됨
+        let selectParams = testFile.questions[i].selection[select].params;
         let paramsKey: string[] = Object.keys(selectParams);
 
         for (let j: number = 0; j < paramsKey.length; j++) {
@@ -688,7 +657,8 @@ async function testResultHandler(req, res) {
         });
     }
 
-    let content: string = generatePrompt(paramsScore);
+    let prompt: string = generatePrompt(paramsScore);
+    let systemMessage: string = selectTestResult[0].system_message;
 
     try {
         const completion = await openai.createChatCompletion({
@@ -696,18 +666,11 @@ async function testResultHandler(req, res) {
             messages: [
                 {
                     role: "system",
-                    content: `You will play the role of system and psychology advisor.
-                    The data given from the user is a random classification of the propensity of psychological test results.
-                        Look at the results and tell me the results of predicting the person's personality or behavior.
-                        There are values that express propensity from 0 to 30, and the higher the value, the closer the propensity,
-                        and avoid mentioning the numerical value and the higher the value, the closer the propensity.
-                        Start with the word "you" and say it like you do to someone who's been tested. 
-                        and You can predict your personality and behavior.Please don't include that".
-                        Please translate this into Korean only`,
+                    content: `${systemMessage}`,
                 },
                 {
                     role: "user",
-                    content: `${content}`,
+                    content: `${prompt}`,
                 },
             ],
 
@@ -721,40 +684,50 @@ async function testResultHandler(req, res) {
             completion.data.choices[0].message?.content ?? "";
 
         await connectPool.query(
-            "INSERT INTO `test_result` (`token`, `content`, `select_test`) VALUES (?, ?, ?)",
+            "INSERT INTO `test_result` (`token`, `content`, `select_test`)" +
+                " VALUES (?, ?, ?)",
             [progressToken, testResult, selectTest]
         );
 
-        // if (!isNaN(Number(userId)) && userId !== "") {
+        res.status(200).json({
+            result: testResult,
+            success: true,
+        });
 
-        if ((accessToken ?? "") !== "") {
-            if (await checkAccessToken(accessToken)) {
-                let [result] = (await connectPool.query(
-                    "SELECT `id` FROM `test_result` WHERE `token` = ?",
-                    [progressToken]
-                )) as mysql.RowDataPacket[];
+        let memberID: string = res.locals.account?.id ?? "";
 
-                if (result.length == 0) {
-                    return res.status(500).json({
-                        errorCode: ERROR_MISSING_VALUE,
-                        error: "Missing result value",
-                    });
-                }
+        if (memberID !== "") {
+            let [result] = (await connectPool.query(
+                "SELECT `id` FROM `test_result` WHERE `token` = ?",
+                [progressToken]
+            )) as mysql.RowDataPacket[];
 
-                let resultID: number = result[0].id;
-
-                console.log(resultID, accessToken);
-
-                await connectPool.query(
-                    "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES (?, (SELECT `account_id` FROM `access_token` WHERE `token` = ?))",
-                    [resultID, accessToken]
-                );
+            if (result.length == 0) {
+                return res.status(500).json({
+                    errorCode: ERROR_MISSING_VALUE,
+                    error: "Missing result value",
+                });
             }
+
+            let resultID: string = result[0].id ?? "";
+
+            if (resultID == "") {
+                return res.status(500).json({
+                    errorCode: ERROR_MISSING_VALUE,
+                    error: "Missing resultID value",
+                });
+            }
+
+            await connectPool.query(
+                "INSERT INTO `test_saved_result` (`result_id`, `member_id`)" +
+                    " VALUES (?,?)",
+                [resultID, memberID]
+            );
+
+            return;
         }
 
-        return res.status(200).json({
-            result: testResult, // 결과를 먼저 날려놓고 서버에 저장할까?
-        });
+        return;
     } catch (error) {
         // Consider adjusting the error handling logic for your use case
         if (error.response) {
@@ -774,18 +747,15 @@ async function testResultHandler(req, res) {
 
 app.get("/test/result/history", testResultHistoryHandler);
 async function testResultHistoryHandler(req, res) {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
-
-    let accessToken: string = req.query.accessToken ?? "";
+    let memberID: string = res.locals.account?.id ?? "";
 
     let [result] = (await connectPool.query(
-        "SELECT `select_test`,`time_date`,`content` FROM `test_saved_result` AS `tsr` LEFT JOIN `test_result` AS `tr` ON `tsr`.`result_id` = `tr`.`id` WHERE `tsr`.`member_id` = (SELECT `account_id` FROM `access_token` WHERE `token` = ?) ORDER BY `time_date` DESC LIMIT 5",
-        [accessToken]
+        "SELECT `select_test`,`time_date`,`content`" +
+            " FROM `test_saved_result` AS `tsr`" +
+            " LEFT JOIN `test_result` AS `tr` ON `tsr`.`result_id` = `tr`.`id`" +
+            " WHERE `tsr`.`member_id` = ?" +
+            " ORDER BY `time_date` DESC LIMIT 5",
+        [memberID]
     )) as mysql.RowDataPacket[];
 
     if (result.length === 0) {
@@ -795,7 +765,14 @@ async function testResultHistoryHandler(req, res) {
         });
     }
 
-    let selectTest: number = result[0].select_test;
+    let selectTest: string = result[0].select_test ?? "";
+
+    if (selectTest === "") {
+        return res.status(500).json({
+            errorCode: ERROR_MISSING_VALUE,
+            error: "Missing selectTest value",
+        });
+    }
 
     let [testListResult] = (await connectPool.query(
         "SELECT `test_name` FROM `test_list` WHERE `id` = ?",
@@ -826,28 +803,44 @@ async function testResultHistoryHandler(req, res) {
 
 app.post("/test/result/save", testResultSaveHandler);
 async function testResultSaveHandler(req, res) {
-    let accessToken: string = req.body.accessToken ?? "";
     let saveResultToken: string = req.body.saveResultToken ?? "";
 
-    if (accessToken == "" || saveResultToken == "") {
+    if (saveResultToken == "") {
         return res.status(400).json({
             errorCode: ERROR_MISSING_VALUE,
-            error: "Missing accessToken or saveResultToken",
+            error: "Missing saveResultToken",
         });
     }
-    if (!(await checkAccessToken(accessToken))) {
+
+    let memberID: string = res.locals.account?.id ?? "";
+
+    if (memberID == "") {
         return res.status(400).json({
             errorCode: ERROR_MISSING_VALUE,
-            error: "Invalid accessToken",
+            error: "Missing memberID",
+        });
+    }
+
+    let [result] = (await connectPool.query(
+        "SELECT `id` FROM `test_result` WHERE `token` = ? LIMIT 1",
+        [saveResultToken]
+    )) as mysql.RowDataPacket[];
+
+    let saveResultID: string = result[0].id ?? "";
+
+    if (saveResultID == "") {
+        return res.status(500).json({
+            errorCode: ERROR_MISSING_VALUE,
+            error: "Missing saveResultID",
         });
     }
 
     await connectPool.query(
-        "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES ((SELECT `id` FROM `test_result` WHERE `token` = ? LIMIT 1), (SELECT `account_id` FROM `access_token` WHERE `token` = ? LIMIT 1))",
-        [saveResultToken, accessToken]
+        "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES (?, ?)",
+        [saveResultToken, memberID]
     );
 
-    console.log("save Result");
+    console.log("result is saved");
 
     return res.status(200).json({
         success: true,
