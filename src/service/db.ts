@@ -1,6 +1,6 @@
 import mysql from "mysql2/promise";
 
-let connectPool: mysql.Pool;
+export let connectPool: mysql.Pool;
 
 export async function init() {
     connectPool = await mysql.createPool({
@@ -14,5 +14,3 @@ export async function init() {
 
     console.log("DB Connection successful?:", connectPool != null);
 }
-
-export { connectPool };

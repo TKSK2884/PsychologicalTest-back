@@ -10,8 +10,17 @@ import crypto from "crypto";
 import { Data, ResultObject, indexingString } from "../structure/type";
 import https from "https";
 
-import { connectPool, init } from "./routes/db";
-import { testHandler } from "./routes/test";
+import { connectPool, init } from "./service/db";
+import { testHandler, testListHandler } from "./service/test";
+import {
+    testResultHandler,
+    testResultHistoryHandler,
+    testResultSaveHandler,
+} from "./service/test";
+import { testUpdateHandler } from "./service/test";
+import { kakaoTokenHandler } from "./api/kakao";
+import { loginHandler, joinHandler, memberInfoHandler } from "./service/member";
+import { mindMiddleware } from "./service/middleware";
 
 import {
     ERROR_USER_INVALID,
@@ -22,24 +31,24 @@ import {
     ERROR_DB_INVALID,
     ERORR_BAD_REQUEST,
     ERROR_API_KEY_INVALID,
-} from "./routes/error-message";
+} from "./utill/error-message";
 
 const app = express();
 const port = 8443;
 
 const mySalt: string | undefined = process.env.SALT;
 
-dotenv.config();
+// dotenv.config();
 
 app.use(cors());
 app.use(express.json());
 app.use(mindMiddleware);
 
-const configuration = new Configuration({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+// const configuration = new Configuration({
+//     apiKey: process.env.OPENAI_API_KEY,
+// });
 
-const openai = new OpenAIApi(configuration);
+// const openai = new OpenAIApi(configuration);
 
 // const ERROR_USER_INVALID: number = 101; //유저정보가 없음
 // const ERROR_MISSING_VALUE: number = 102; //필수값이 없음
@@ -51,331 +60,310 @@ const openai = new OpenAIApi(configuration);
 // const ERROR_DB_INVALID: number = 301; //DB연결실패
 // const ERORR_BAD_REQUEST: number = 302; //잘못된 요청
 // const ERROR_API_KEY_INVALID: number = 303; //API키가 없음
+
 init();
 
-async function mindMiddleware(req, res, next) {
-    if (connectPool == null) {
-        return res.status(500).json({
-            errorCode: ERROR_DB_INVALID,
-            error: "DB connection failed",
-        });
-    }
+// async function mindMiddleware(req, res, next) {
+//     if (connectPool == null) {
+//         return res.status(500).json({
+//             errorCode: ERROR_DB_INVALID,
+//             error: "DB connection failed",
+//         });
+//     }
 
-    let accessToken: string =
-        (req.query.accessToken as string) ?? req.body.accessToken ?? "";
+//     let accessToken: string =
+//         (req.query.accessToken as string) ?? req.body.accessToken ?? "";
 
-    if (accessToken != "") {
-        let result = await getUserInfo(accessToken);
+//     if (accessToken != "") {
+//         let result = await getUserInfo(accessToken);
 
-        if (result == null) {
-            return res.status(401).json({
-                errorCode: ERROR_DB_INVALID,
-                error: "Access Token is wrong",
-            });
-        }
+//         if (result == null) {
+//             return res.status(401).json({
+//                 errorCode: ERROR_DB_INVALID,
+//                 error: "Access Token is wrong",
+//             });
+//         }
 
-        res.locals.account = result;
-    }
+//         res.locals.account = result;
+//     }
 
-    next();
-}
+//     next();
+// }
 
-async function getUserInfo(
-    accessToken: string
-): Promise<{ nickname: string; id: string } | null> {
-    if (accessToken == "") {
-        return null;
-    }
+// async function getUserInfo(
+//     accessToken: string
+// ): Promise<{ nickname: string; id: string } | null> {
+//     if (accessToken == "") {
+//         return null;
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT a.`nickname`,a.`id` FROM `access_token` AS `at`" +
-            " LEFT JOIN `account` AS `a` ON `at`.`account_id` = `a`.id" +
-            " WHERE `at`.`token` = ?",
-        [accessToken]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT a.`nickname`,a.`id` FROM `access_token` AS `at`" +
+//             " LEFT JOIN `account` AS `a` ON `at`.`account_id` = `a`.id" +
+//             " WHERE `at`.`token` = ?",
+//         [accessToken]
+//     )) as mysql.RowDataPacket[];
 
-    if (result.length == 0) {
-        return null;
-    }
+//     if (result.length == 0) {
+//         return null;
+//     }
 
-    let userInfo: { nickname: string; id: string } = {
-        nickname: result[0].nickname ?? "",
-        id: result[0].id ?? "",
-    };
-    return userInfo;
-}
+//     let userInfo: { nickname: string; id: string } = {
+//         nickname: result[0].nickname ?? "",
+//         id: result[0].id ?? "",
+//     };
+//     return userInfo;
+// }
 
 app.post("/kakao/token", kakaoTokenHandler);
-async function kakaoTokenHandler(req, res) {
-    let code: string = req.body.code;
 
-    if ((code ?? "") == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing value",
-        });
-    }
+// async function kakaoTokenHandler(req, res) {
+//     let code: string = req.body.code;
 
-    console.log(code);
+//     if ((code ?? "") == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing value",
+//         });
+//     }
 
-    const tokenUrl: string = "https://kauth.kakao.com/oauth/token";
+//     console.log(code);
 
-    const data: Data = {
-        grant_type: "authorization_code",
-        client_id: process.env.KAKAO_ACCESS_KEY,
-        redirect_uri: process.env.KAKAO_REDIRECT_URI,
-        code: code,
-    };
+//     const tokenUrl: string = "https://kauth.kakao.com/oauth/token";
 
-    let accessToken: string = "";
-    let fetchedID: string = "";
-    let fetchedNickname: string = "";
-    let linkService: string = "kakao";
-    let userType: number = 1;
+//     const data: Data = {
+//         grant_type: "authorization_code",
+//         client_id: process.env.KAKAO_ACCESS_KEY,
+//         redirect_uri: process.env.KAKAO_REDIRECT_URI,
+//         code: code,
+//     };
 
-    try {
-        let kakaoResponse = await axios.post(tokenUrl, qs.stringify(data), {
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        });
-        console.log(kakaoResponse.data);
+//     let accessToken: string = "";
+//     let fetchedID: string = "";
+//     let fetchedNickname: string = "";
+//     let linkService: string = "kakao";
+//     let userType: number = 1;
 
-        accessToken = kakaoResponse.data.access_token;
+//     try {
+//         let kakaoResponse = await axios.post(tokenUrl, qs.stringify(data), {
+//             headers: {
+//                 "Content-Type": "application/x-www-form-urlencoded",
+//             },
+//         });
+//         console.log(kakaoResponse.data);
 
-        const userInfoUrl: string = "https://kapi.kakao.com/v2/user/me";
+//         accessToken = kakaoResponse.data.access_token;
 
-        let kakaoUserInfo = await axios.get(userInfoUrl, {
-            headers: {
-                Authorization: "Bearer " + accessToken,
-            },
-        });
+//         const userInfoUrl: string = "https://kapi.kakao.com/v2/user/me";
 
-        console.log(kakaoUserInfo.data);
+//         let kakaoUserInfo = await axios.get(userInfoUrl, {
+//             headers: {
+//                 Authorization: "Bearer " + accessToken,
+//             },
+//         });
 
-        fetchedNickname = kakaoUserInfo.data.properties.nickname;
-        fetchedID = kakaoUserInfo.data.id;
-    } catch (error) {
-        console.log(error.response.data);
+//         console.log(kakaoUserInfo.data);
 
-        return res.status(400).json({
-            errorCode: ERORR_BAD_REQUEST,
-            error: "Bad request",
-        });
-    }
+//         fetchedNickname = kakaoUserInfo.data.properties.nickname;
+//         fetchedID = kakaoUserInfo.data.id;
+//     } catch (error) {
+//         console.log(error.response.data);
 
-    if ((fetchedID ?? "") == "" || (fetchedNickname ?? "") == "") {
-        return res.status(400).json({
-            errorCode: ERORR_BAD_REQUEST,
-            error: "Bad request",
-        });
-    }
+//         return res.status(400).json({
+//             errorCode: ERORR_BAD_REQUEST,
+//             error: "Bad request",
+//         });
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT * FROM `linked_user` WHERE `access_token` = ? " +
-            "AND `user_nickname` = ? AND `linked_service` = ?",
-        [fetchedID, fetchedNickname, linkService]
-    )) as mysql.RowDataPacket[];
+//     if ((fetchedID ?? "") == "" || (fetchedNickname ?? "") == "") {
+//         return res.status(400).json({
+//             errorCode: ERORR_BAD_REQUEST,
+//             error: "Bad request",
+//         });
+//     }
 
-    if (result.length != 0) {
-        console.log(result[0]);
+//     let [result] = (await connectPool.query(
+//         "SELECT * FROM `linked_user` WHERE `access_token` = ? " +
+//             "AND `user_nickname` = ? AND `linked_service` = ?",
+//         [fetchedID, fetchedNickname, linkService]
+//     )) as mysql.RowDataPacket[];
 
-        let id: string = await searchAccountId(fetchedID);
-        let token: string = await createToken(id);
+//     if (result.length != 0) {
+//         console.log(result[0]);
 
-        if (id == "" || token == "") {
-            return res.status(400).json({
-                errorCode: ERORR_BAD_REQUEST,
-                error: "Bad request",
-            });
-        }
+//         let id: string = await searchAccountID(fetchedID);
+//         let token: string = await createToken(id);
 
-        return res.status(200).json({
-            token: token,
-            success: true,
-        });
-    }
+//         if (id == "" || token == "") {
+//             return res.status(400).json({
+//                 errorCode: ERORR_BAD_REQUEST,
+//                 error: "Bad request",
+//             });
+//         }
 
-    await connectPool.query(
-        "INSERT INTO `linked_user`" +
-            " (`access_token`, `user_nickname`, `linked_service`)" +
-            " VALUES (?,?,?)",
-        [fetchedID, fetchedNickname, linkService]
-    );
+//         return res.status(200).json({
+//             token: token,
+//             success: true,
+//         });
+//     }
 
-    let socialLinkedID: string = await searchLinkedId(fetchedID);
+//     await connectPool.query(
+//         "INSERT INTO `linked_user`" +
+//             " (`access_token`, `user_nickname`, `linked_service`)" +
+//             " VALUES (?,?,?)",
+//         [fetchedID, fetchedNickname, linkService]
+//     );
 
-    if (socialLinkedID == "") {
-        return res.status(400).json({
-            errorCode: ERORR_BAD_REQUEST,
-            error: "Bad request",
-        });
-    }
+//     let socialLinkedID: string = await searchLinkedID(fetchedID);
 
-    await connectPool.query(
-        "INSERT INTO `account` " +
-            "(`social_linked_id`, `nickname` , `user_type`)" +
-            " VALUES (?,?,?)",
-        [socialLinkedID, fetchedNickname, userType]
-    );
+//     if (socialLinkedID == "") {
+//         return res.status(400).json({
+//             errorCode: ERORR_BAD_REQUEST,
+//             error: "Bad request",
+//         });
+//     }
 
-    let id: string = await searchAccountId(fetchedID);
+//     await connectPool.query(
+//         "INSERT INTO `account` " +
+//             "(`social_linked_id`, `nickname` , `user_type`)" +
+//             " VALUES (?,?,?)",
+//         [socialLinkedID, fetchedNickname, userType]
+//     );
 
-    return res.status(200).json({
-        token: await createToken(id),
-        success: true,
-    });
-}
+//     let id: string = await searchAccountID(fetchedID);
 
-async function createToken(fetchedID: string): Promise<string> {
-    let randomizedToken: string =
-        fetchedID + Math.random().toString() + new Date().getDate().toString();
-    randomizedToken = crypto
-        .createHash("sha256")
-        .update(randomizedToken)
-        .digest("hex");
+//     return res.status(200).json({
+//         token: await createToken(id),
+//         success: true,
+//     });
 
-    let accountID: string = fetchedID;
+// async function searchAccountID(userId: string): Promise<string> {
+//     let value: string = await searchLinkedID(userId);
 
-    if (accountID == "") {
-        return "";
-    }
+//     let [result] = (await connectPool.query(
+//         "SELECT * FROM `account` WHERE `social_linked_id` = ?",
+//         [value]
+//     )) as mysql.RowDataPacket[];
 
-    await connectPool.query(
-        "INSERT INTO `access_token` (`account_id`, `token`) VALUES (?,?)",
-        [accountID, randomizedToken]
-    );
+//     if (result.length == 0) {
+//         return "";
+//     }
+//     let id: string = result[0].id;
+//     return id;
+// }
 
-    return randomizedToken;
-}
+// async function searchLinkedID(userId: string): Promise<string> {
+//     let [result] = (await connectPool.query(
+//         "SELECT * FROM `linked_user` WHERE `access_token` = ?",
+//         [userId]
+//     )) as mysql.RowDataPacket[];
 
-async function searchAccountId(userId: string): Promise<string> {
-    let value: string = await searchLinkedId(userId);
-
-    let [result] = (await connectPool.query(
-        "SELECT * FROM `account` WHERE `social_linked_id` = ?",
-        [value]
-    )) as mysql.RowDataPacket[];
-
-    if (result.length == 0) {
-        return "";
-    }
-    let id: string = result[0].id;
-    return id;
-}
-
-async function searchLinkedId(userId: string): Promise<string> {
-    let [result] = (await connectPool.query(
-        "SELECT * FROM `linked_user` WHERE `access_token` = ?",
-        [userId]
-    )) as mysql.RowDataPacket[];
-
-    if (result.length == 0) {
-        return "";
-    }
-    let id: string = result[0].id ?? "";
-    return id;
-}
+//     if (result.length == 0) {
+//         return "";
+//     }
+//     let id: string = result[0].id ?? "";
+//     return id;
+// }
 
 app.post("/memeber/login", loginHandler);
-async function loginHandler(req: Request, res: any) {
-    let fetchedBody: any = req.body;
+// async function loginHandler(req: Request, res: any) {
+//     let fetchedBody: any = req.body;
 
-    let fetchedID: string = fetchedBody?.id ?? "";
-    let fetchedPW: string = fetchedBody?.pw ?? "";
+//     let fetchedID: string = fetchedBody?.id ?? "";
+//     let fetchedPW: string = fetchedBody?.pw ?? "";
 
-    if (fetchedID == "" || fetchedPW == "") {
-        return res.status(400).json({
-            errorCode: ERROR_USER_INVALID,
-            error: "ID or password is missing",
-        });
-    }
+//     if (fetchedID == "" || fetchedPW == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_USER_INVALID,
+//             error: "ID or password is missing",
+//         });
+//     }
 
-    fetchedPW = crypto
-        .createHash("sha256")
-        .update(fetchedPW + mySalt)
-        .digest("hex");
+//     fetchedPW = crypto
+//         .createHash("sha256")
+//         .update(fetchedPW + mySalt)
+//         .digest("hex");
 
-    let [result] = (await connectPool.query(
-        "SELECT `id` FROM `account` WHERE `user_id`=? AND `user_pw`=?",
-        [fetchedID, fetchedPW]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT `id` FROM `account` WHERE `user_id`=? AND `user_pw`=?",
+//         [fetchedID, fetchedPW]
+//     )) as mysql.RowDataPacket[];
 
-    if (result.length == 0) {
-        return res.status(400).json({
-            errorCode: ERROR_USER_INVALID,
-            error: "ID or password is missing",
-        });
-    }
+//     if (result.length == 0) {
+//         return res.status(400).json({
+//             errorCode: ERROR_USER_INVALID,
+//             error: "ID or password is missing",
+//         });
+//     }
 
-    let id: string = result[0].id;
+//     let id: string = result[0].id;
 
-    return res.status(200).json({
-        token: await createToken(id),
-        success: true,
-    });
-}
+//     return res.status(200).json({
+//         token: await createToken(id),
+//         success: true,
+//     });
+// }
 
 app.post("/memeber/join", joinHandler);
-async function joinHandler(req: Request, res: any): Promise<any> {
-    let fetchedBody: any = req.body;
+// async function joinHandler(req: Request, res: any): Promise<any> {
+//     let fetchedBody: any = req.body;
 
-    let fetchedID: string = fetchedBody?.id ?? "";
-    let fetchedPW: string = fetchedBody?.pw ?? "";
-    let fetchedNickname: string = fetchedBody?.name ?? "";
+//     let fetchedID: string = fetchedBody?.id ?? "";
+//     let fetchedPW: string = fetchedBody?.pw ?? "";
+//     let fetchedNickname: string = fetchedBody?.name ?? "";
 
-    if (fetchedID === "" || fetchedPW === "" || fetchedNickname === "") {
-        return res.status(400).json({
-            errorCode: ERROR_USER_INVALID,
-            error: "params missing",
-        });
-    }
+//     if (fetchedID === "" || fetchedPW === "" || fetchedNickname === "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_USER_INVALID,
+//             error: "params missing",
+//         });
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT * FROM `account` WHERE `user_id`=? OR `nickname`=?",
-        [fetchedID, fetchedNickname]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT * FROM `account` WHERE `user_id`=? OR `nickname`=?",
+//         [fetchedID, fetchedNickname]
+//     )) as mysql.RowDataPacket[];
 
-    if (result.length != 0) {
-        let resultUserID: string = result[0].user_id ?? "";
-        let resultNickname: string = result[0].nickname ?? "";
+//     if (result.length != 0) {
+//         let resultUserID: string = result[0].user_id ?? "";
+//         let resultNickname: string = result[0].nickname ?? "";
 
-        if (resultUserID == fetchedID || resultNickname == fetchedNickname)
-            return res.status(400).json({
-                errorCode: ERROR_DUPLICATE_DATA,
-                error: "ID or nickname already exists",
-            });
+//         if (resultUserID == fetchedID || resultNickname == fetchedNickname)
+//             return res.status(400).json({
+//                 errorCode: ERROR_DUPLICATE_DATA,
+//                 error: "ID or nickname already exists",
+//             });
 
-        return res.status(500).json({
-            errorCode: ERORR_BAD_REQUEST,
-            error: "Bad Request",
-        });
-    }
+//         return res.status(500).json({
+//             errorCode: ERORR_BAD_REQUEST,
+//             error: "Bad Request",
+//         });
+//     }
 
-    fetchedPW = crypto
-        .createHash("sha256")
-        .update(fetchedPW + mySalt)
-        .digest("hex");
+//     fetchedPW = crypto
+//         .createHash("sha256")
+//         .update(fetchedPW + mySalt)
+//         .digest("hex");
 
-    await connectPool.query(
-        "INSERT INTO `account` (`user_id`, `user_pw`, `nickname`) VALUES (?,?,?)",
-        [fetchedID, fetchedPW, fetchedNickname]
-    );
+//     await connectPool.query(
+//         "INSERT INTO `account` (`user_id`, `user_pw`, `nickname`) VALUES (?,?,?)",
+//         [fetchedID, fetchedPW, fetchedNickname]
+//     );
 
-    return res.status(200).json({
-        success: true,
-    });
-}
+//     return res.status(200).json({
+//         success: true,
+//     });
+// }
 
 app.get("/member/info", memberInfoHandler);
-async function memberInfoHandler(req, res) {
-    let nickname: string = res.locals.account?.nickname ?? "";
+// async function memberInfoHandler(req, res) {
+//     let nickname: string = res.locals.account?.nickname ?? "";
 
-    return res.status(200).json({
-        nickname: nickname,
-        success: true,
-    });
-}
+//     return res.status(200).json({
+//         nickname: nickname,
+//         success: true,
+//     });
+// }
 
 app.get("/test", testHandler);
 // async function testHandler(req, res) {
@@ -474,390 +462,390 @@ app.get("/test", testHandler);
 // }
 
 app.get("/test/list", testListHandler);
-async function testListHandler(req, res) {
-    let loadTestList: string = req.query.loadTestList ?? "";
+// async function testListHandler(req, res) {
+//     let loadTestList: string = req.query.loadTestList ?? "";
 
-    if (loadTestList == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing value",
-        });
-    }
+//     if (loadTestList == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing value",
+//         });
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT `id`,`test_name` FROM `test_list`"
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT `id`,`test_name` FROM `test_list`"
+//     )) as mysql.RowDataPacket[];
 
-    if (result.length == 0) {
-        return res.status(500).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing value",
-        });
-    }
+//     if (result.length == 0) {
+//         return res.status(500).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing value",
+//         });
+//     }
 
-    let testListArray: indexingString[] = result.map(
-        (item: indexingString) => ({
-            id: item.id,
-            test_name: item.test_name,
-        })
-    );
+//     let testListArray: indexingString[] = result.map(
+//         (item: indexingString) => ({
+//             id: item.id,
+//             test_name: item.test_name,
+//         })
+//     );
 
-    return res.status(200).json({
-        testList: testListArray,
-        success: true,
-    });
-}
+//     return res.status(200).json({
+//         testList: testListArray,
+//         success: true,
+//     });
+// }
 
 app.post("/test/update", testUpdateHandler);
-async function testUpdateHandler(req, res) {
-    let progressToken: string = req.body.token ?? "";
-    let updatedProgress: number = req.body.progress;
-    let selectTest: string = req.body.selectTest;
+// async function testUpdateHandler(req, res) {
+//     let progressToken: string = req.body.token ?? "";
+//     let updatedProgress: number = req.body.progress;
+//     let selectTest: string = req.body.selectTest;
 
-    if (
-        progressToken == "" ||
-        updatedProgress == null ||
-        updatedProgress == undefined
-    ) {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "params missing",
-        });
-    }
+//     if (
+//         progressToken == "" ||
+//         updatedProgress == null ||
+//         updatedProgress == undefined
+//     ) {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "params missing",
+//         });
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT `progress` FROM `test_progress` WHERE `token` = ? AND `select_test` = ?",
-        [progressToken, selectTest]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT `progress` FROM `test_progress` WHERE `token` = ? AND `select_test` = ?",
+//         [progressToken, selectTest]
+//     )) as mysql.RowDataPacket[];
 
-    if (result[0].progress == null) {
-        await connectPool.query(
-            "UPDATE `test_progress` SET `progress`" +
-                " = COALESCE(`progress`, 0) + ? WHERE `token` = ? AND `select_test` = ?",
-            [updatedProgress, progressToken, selectTest]
-        );
-        return res.status(200).json({ success: true });
-    }
+//     if (result[0].progress == null) {
+//         await connectPool.query(
+//             "UPDATE `test_progress` SET `progress`" +
+//                 " = COALESCE(`progress`, 0) + ? WHERE `token` = ? AND `select_test` = ?",
+//             [updatedProgress, progressToken, selectTest]
+//         );
+//         return res.status(200).json({ success: true });
+//     }
 
-    await connectPool.query(
-        "UPDATE `test_progress` SET " +
-            "`progress` = CONCAT(`progress`, ?) WHERE `token` = ? AND `select_test` = ?",
-        [updatedProgress, progressToken, selectTest]
-    );
+//     await connectPool.query(
+//         "UPDATE `test_progress` SET " +
+//             "`progress` = CONCAT(`progress`, ?) WHERE `token` = ? AND `select_test` = ?",
+//         [updatedProgress, progressToken, selectTest]
+//     );
 
-    return res.status(200).json({ success: true });
-}
+//     return res.status(200).json({ success: true });
+// }
 
 app.post("/test/result", testResultHandler);
-async function testResultHandler(req, res) {
-    let progressToken: string = req.body.progressToken ?? "";
-    let selectTest: string = req.body.selectTest ?? "";
+// async function testResultHandler(req, res) {
+//     let progressToken: string = req.body.progressToken ?? "";
+//     let selectTest: string = req.body.selectTest ?? "";
 
-    if (progressToken == "" || selectTest == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing progressToken or selectTest",
-        });
-    }
+//     if (progressToken == "" || selectTest == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing progressToken or selectTest",
+//         });
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT * FROM `test_progress` WHERE `token` = ? AND `select_test` = ? AND `status` = 0",
-        [progressToken, selectTest]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT * FROM `test_progress` WHERE `token` = ? AND `select_test` = ? AND `status` = 0",
+//         [progressToken, selectTest]
+//     )) as mysql.RowDataPacket[];
 
-    console.log(result);
+//     console.log(result);
 
-    if (result.length == 0) {
-        return res.status(400).json({
-            errorCode: ERROR_RESULT_INVALID,
-            error: "Invalid token value",
-        });
-    }
+//     if (result.length == 0) {
+//         return res.status(400).json({
+//             errorCode: ERROR_RESULT_INVALID,
+//             error: "Invalid token value",
+//         });
+//     }
 
-    console.log(result[0].progress);
+//     console.log(result[0].progress);
 
-    let finished: number = 1;
+//     let finished: number = 1;
 
-    await connectPool.query(
-        "UPDATE `test_progress` SET `status` = ? WHERE `token` = ? AND `select_test` = ?",
-        [finished, progressToken, selectTest]
-    );
+//     await connectPool.query(
+//         "UPDATE `test_progress` SET `status` = ? WHERE `token` = ? AND `select_test` = ?",
+//         [finished, progressToken, selectTest]
+//     );
 
-    let progress: string = result[0].progress ?? "";
-    // let selectTest: string = result[0].select_test ?? "";
-    let timeDate: string = result[0].time_date ?? "";
+//     let progress: string = result[0].progress ?? "";
+//     // let selectTest: string = result[0].select_test ?? "";
+//     let timeDate: string = result[0].time_date ?? "";
 
-    if (progress == "" || timeDate == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing progress value",
-        });
-    }
+//     if (progress == "" || timeDate == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing progress value",
+//         });
+//     }
 
-    let presentTimeDate: Date = new Date(timeDate);
+//     let presentTimeDate: Date = new Date(timeDate);
 
-    let oneMonthAgoTimeDate: Date = new Date(
-        presentTimeDate.getFullYear(),
-        presentTimeDate.getMonth() - 1,
-        presentTimeDate.getDate()
-    );
+//     let oneMonthAgoTimeDate: Date = new Date(
+//         presentTimeDate.getFullYear(),
+//         presentTimeDate.getMonth() - 1,
+//         presentTimeDate.getDate()
+//     );
 
-    await connectPool.query(
-        "DELETE FROM `test_progress` WHERE `time_date` < ? AND `status` = 0",
-        [oneMonthAgoTimeDate]
-    );
+//     await connectPool.query(
+//         "DELETE FROM `test_progress` WHERE `time_date` < ? AND `status` = 0",
+//         [oneMonthAgoTimeDate]
+//     );
 
-    let [selectTestResult] = (await connectPool.query(
-        "SELECT * FROM `test_list` WHERE `id` = ?",
-        [selectTest]
-    )) as mysql.RowDataPacket[];
+//     let [selectTestResult] = (await connectPool.query(
+//         "SELECT * FROM `test_list` WHERE `id` = ?",
+//         [selectTest]
+//     )) as mysql.RowDataPacket[];
 
-    let testFile = JSON.parse(selectTestResult[0].test_content);
+//     let testFile = JSON.parse(selectTestResult[0].test_content);
 
-    if (Object.keys(testFile).length == 0) {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing test file",
-        });
-    }
+//     if (Object.keys(testFile).length == 0) {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing test file",
+//         });
+//     }
 
-    let params: any = testFile.settings.parameters;
-    let paramsScore: { [k: string]: number } = {};
+//     let params: any = testFile.settings.parameters;
+//     let paramsScore: { [k: string]: number } = {};
 
-    Object.keys(params).forEach((k: string) => {
-        let targetKey: string = params[k];
-        paramsScore[targetKey] = 0;
-    });
+//     Object.keys(params).forEach((k: string) => {
+//         let targetKey: string = params[k];
+//         paramsScore[targetKey] = 0;
+//     });
 
-    let processArray: string[] = progress.split("");
-    let convertedProcessArray: number[] = processArray.map((item) =>
-        Number(item)
-    );
+//     let processArray: string[] = progress.split("");
+//     let convertedProcessArray: number[] = processArray.map((item) =>
+//         Number(item)
+//     );
 
-    let arrayLength: number = testFile.questions.length;
+//     let arrayLength: number = testFile.questions.length;
 
-    for (let i = 0; i < arrayLength; i++) {
-        let select: number = convertedProcessArray[i] ?? 0;
+//     for (let i = 0; i < arrayLength; i++) {
+//         let select: number = convertedProcessArray[i] ?? 0;
 
-        let selectParams = testFile.questions[i].selection[select].params;
-        let paramsKey: string[] = Object.keys(selectParams);
+//         let selectParams = testFile.questions[i].selection[select].params;
+//         let paramsKey: string[] = Object.keys(selectParams);
 
-        for (let j: number = 0; j < paramsKey.length; j++) {
-            let key = paramsKey[j];
-            let targetValue = selectParams[key];
-            paramsScore[key] += targetValue;
-        }
-    }
+//         for (let j: number = 0; j < paramsKey.length; j++) {
+//             let key = paramsKey[j];
+//             let targetValue = selectParams[key];
+//             paramsScore[key] += targetValue;
+//         }
+//     }
 
-    if (!configuration.apiKey) {
-        console.log("API key is missing");
-        return res.status(500).json({
-            errorCode: ERROR_API_KEY_INVALID,
-            error: "API key is missing",
-        });
-    }
+//     if (!configuration.apiKey) {
+//         console.log("API key is missing");
+//         return res.status(500).json({
+//             errorCode: ERROR_API_KEY_INVALID,
+//             error: "API key is missing",
+//         });
+//     }
 
-    let prompt: string = generatePrompt(paramsScore);
-    let systemMessage: string = selectTestResult[0].system_message;
+//     let prompt: string = generatePrompt(paramsScore);
+//     let systemMessage: string = selectTestResult[0].system_message;
 
-    try {
-        const completion = await openai.createChatCompletion({
-            model: "gpt-3.5-turbo",
-            messages: [
-                {
-                    role: "system",
-                    content: `${systemMessage}`,
-                },
-                {
-                    role: "user",
-                    content: `${prompt}`,
-                },
-            ],
+//     try {
+//         const completion = await openai.createChatCompletion({
+//             model: "gpt-3.5-turbo",
+//             messages: [
+//                 {
+//                     role: "system",
+//                     content: `${systemMessage}`,
+//                 },
+//                 {
+//                     role: "user",
+//                     content: `${prompt}`,
+//                 },
+//             ],
 
-            temperature: 0.9,
-            max_tokens: 1000,
-        });
+//             temperature: 0.9,
+//             max_tokens: 1000,
+//         });
 
-        // console.log(completion.data.choices);
+//         // console.log(completion.data.choices);
 
-        let testResult: string =
-            completion.data.choices[0].message?.content ?? "";
+//         let testResult: string =
+//             completion.data.choices[0].message?.content ?? "";
 
-        await connectPool.query(
-            "INSERT INTO `test_result` (`token`, `content`, `select_test`)" +
-                " VALUES (?, ?, ?)",
-            [progressToken, testResult, selectTest]
-        );
+//         await connectPool.query(
+//             "INSERT INTO `test_result` (`token`, `content`, `select_test`)" +
+//                 " VALUES (?, ?, ?)",
+//             [progressToken, testResult, selectTest]
+//         );
 
-        res.status(200).json({
-            result: testResult,
-            success: true,
-        });
+//         res.status(200).json({
+//             result: testResult,
+//             success: true,
+//         });
 
-        let memberID: string = res.locals.account?.id ?? "";
+//         let memberID: string = res.locals.account?.id ?? "";
 
-        if (memberID !== "") {
-            let [result] = (await connectPool.query(
-                "SELECT `id` FROM `test_result` WHERE `token` = ?",
-                [progressToken]
-            )) as mysql.RowDataPacket[];
+//         if (memberID !== "") {
+//             let [result] = (await connectPool.query(
+//                 "SELECT `id` FROM `test_result` WHERE `token` = ?",
+//                 [progressToken]
+//             )) as mysql.RowDataPacket[];
 
-            if (result.length == 0) {
-                return res.status(500).json({
-                    errorCode: ERROR_MISSING_VALUE,
-                    error: "Missing result value",
-                });
-            }
+//             if (result.length == 0) {
+//                 return res.status(500).json({
+//                     errorCode: ERROR_MISSING_VALUE,
+//                     error: "Missing result value",
+//                 });
+//             }
 
-            let resultID: string = result[0].id ?? "";
+//             let resultID: string = result[0].id ?? "";
 
-            if (resultID == "") {
-                return res.status(500).json({
-                    errorCode: ERROR_MISSING_VALUE,
-                    error: "Missing resultID value",
-                });
-            }
+//             if (resultID == "") {
+//                 return res.status(500).json({
+//                     errorCode: ERROR_MISSING_VALUE,
+//                     error: "Missing resultID value",
+//                 });
+//             }
 
-            await connectPool.query(
-                "INSERT INTO `test_saved_result` (`result_id`, `member_id`)" +
-                    " VALUES (?,?)",
-                [resultID, memberID]
-            );
+//             await connectPool.query(
+//                 "INSERT INTO `test_saved_result` (`result_id`, `member_id`)" +
+//                     " VALUES (?,?)",
+//                 [resultID, memberID]
+//             );
 
-            return;
-        }
+//             return;
+//         }
 
-        return;
-    } catch (error) {
-        // Consider adjusting the error handling logic for your use case
-        if (error.response) {
-            console.error(error.response.status, error.response.data);
-            res.status(error.response.status).json(error.response.data);
-        } else {
-            console.error(`Error with OpenAI API request: ${error.message}`);
-            res.status(500).json({
-                errorCode: ERORR_BAD_REQUEST,
-                error: "An error occurred during your request.",
-            });
-        }
-    }
+//         return;
+//     } catch (error) {
+//         // Consider adjusting the error handling logic for your use case
+//         if (error.response) {
+//             console.error(error.response.status, error.response.data);
+//             res.status(error.response.status).json(error.response.data);
+//         } else {
+//             console.error(`Error with OpenAI API request: ${error.message}`);
+//             res.status(500).json({
+//                 errorCode: ERORR_BAD_REQUEST,
+//                 error: "An error occurred during your request.",
+//             });
+//         }
+//     }
 
-    return;
-}
+//     return;
+// }
 
 app.get("/test/result/history", testResultHistoryHandler);
-async function testResultHistoryHandler(req, res) {
-    let memberID: string = res.locals.account?.id ?? "";
+// async function testResultHistoryHandler(req, res) {
+//     let memberID: string = res.locals.account?.id ?? "";
 
-    let [result] = (await connectPool.query(
-        "SELECT `select_test`,`time_date`,`content`" +
-            " FROM `test_saved_result` AS `tsr`" +
-            " LEFT JOIN `test_result` AS `tr` ON `tsr`.`result_id` = `tr`.`id`" +
-            " WHERE `tsr`.`member_id` = ?" +
-            " ORDER BY `time_date` DESC LIMIT 5",
-        [memberID]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT `select_test`,`time_date`,`content`" +
+//             " FROM `test_saved_result` AS `tsr`" +
+//             " LEFT JOIN `test_result` AS `tr` ON `tsr`.`result_id` = `tr`.`id`" +
+//             " WHERE `tsr`.`member_id` = ?" +
+//             " ORDER BY `time_date` DESC LIMIT 5",
+//         [memberID]
+//     )) as mysql.RowDataPacket[];
 
-    if (result.length === 0) {
-        return res.status(200).json({
-            result: [],
-            success: true,
-        });
-    }
+//     if (result.length === 0) {
+//         return res.status(200).json({
+//             result: [],
+//             success: true,
+//         });
+//     }
 
-    let selectTest: string = result[0].select_test ?? "";
+//     let selectTest: string = result[0].select_test ?? "";
 
-    if (selectTest === "") {
-        return res.status(500).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing selectTest value",
-        });
-    }
+//     if (selectTest === "") {
+//         return res.status(500).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing selectTest value",
+//         });
+//     }
 
-    let [testListResult] = (await connectPool.query(
-        "SELECT `test_name` FROM `test_list` WHERE `id` = ?",
-        [selectTest]
-    )) as mysql.RowDataPacket[];
+//     let [testListResult] = (await connectPool.query(
+//         "SELECT `test_name` FROM `test_list` WHERE `id` = ?",
+//         [selectTest]
+//     )) as mysql.RowDataPacket[];
 
-    if (testListResult.length === 0) {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing testListResult value",
-        });
-    }
+//     if (testListResult.length === 0) {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing testListResult value",
+//         });
+//     }
 
-    let testName: string = testListResult[0].test_name;
+//     let testName: string = testListResult[0].test_name;
 
-    let contentArray: ResultObject[] = result.map((item: ResultObject) => ({
-        select_test_id: selectTest,
-        select_test: testName,
-        content: item.content,
-        time_date: item.time_date,
-    }));
+//     let contentArray: ResultObject[] = result.map((item: ResultObject) => ({
+//         select_test_id: selectTest,
+//         select_test: testName,
+//         content: item.content,
+//         time_date: item.time_date,
+//     }));
 
-    return res.status(200).json({
-        result: contentArray,
-        success: true,
-    });
-}
+//     return res.status(200).json({
+//         result: contentArray,
+//         success: true,
+//     });
+// }
 
 app.post("/test/result/save", testResultSaveHandler);
-async function testResultSaveHandler(req, res) {
-    let saveResultToken: string = req.body.saveResultToken ?? "";
+// async function testResultSaveHandler(req, res) {
+//     let saveResultToken: string = req.body.saveResultToken ?? "";
 
-    if (saveResultToken == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing saveResultToken",
-        });
-    }
+//     if (saveResultToken == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing saveResultToken",
+//         });
+//     }
 
-    let memberID: string = res.locals.account?.id ?? "";
+//     let memberID: string = res.locals.account?.id ?? "";
 
-    if (memberID == "") {
-        return res.status(400).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing memberID",
-        });
-    }
+//     if (memberID == "") {
+//         return res.status(400).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing memberID",
+//         });
+//     }
 
-    let [result] = (await connectPool.query(
-        "SELECT `id` FROM `test_result` WHERE `token` = ? LIMIT 1",
-        [saveResultToken]
-    )) as mysql.RowDataPacket[];
+//     let [result] = (await connectPool.query(
+//         "SELECT `id` FROM `test_result` WHERE `token` = ? LIMIT 1",
+//         [saveResultToken]
+//     )) as mysql.RowDataPacket[];
 
-    let saveResultID: string = result[0].id ?? "";
+//     let saveResultID: string = result[0].id ?? "";
 
-    if (saveResultID == "") {
-        return res.status(500).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing saveResultID",
-        });
-    }
+//     if (saveResultID == "") {
+//         return res.status(500).json({
+//             errorCode: ERROR_MISSING_VALUE,
+//             error: "Missing saveResultID",
+//         });
+//     }
 
-    await connectPool.query(
-        "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES (?, ?)",
-        [saveResultToken, memberID]
-    );
+//     await connectPool.query(
+//         "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES (?, ?)",
+//         [saveResultToken, memberID]
+//     );
 
-    console.log("result is saved");
+//     console.log("result is saved");
 
-    return res.status(200).json({
-        success: true,
-    });
-}
+//     return res.status(200).json({
+//         success: true,
+//     });
+// }
 
-function generatePrompt(value: object): string {
-    let convertedObject: string = "";
+// function generatePrompt(value: object): string {
+//     let convertedObject: string = "";
 
-    for (let key in value) {
-        convertedObject += key + ":" + value[key] + ",";
-    }
-    convertedObject = convertedObject.slice(0, -1);
-    console.log(convertedObject);
+//     for (let key in value) {
+//         convertedObject += key + ":" + value[key] + ",";
+//     }
+//     convertedObject = convertedObject.slice(0, -1);
+//     console.log(convertedObject);
 
-    return `My data is a ${convertedObject}`;
-}
+//     return `My data is a ${convertedObject}`;
+// }
 
 if (process.env.PRODUCTION == "1") {
     const options = {
