@@ -125,11 +125,6 @@ export async function createTestResultHandler(req, res) {
         [progressToken, testResult, selectTest]
     );
 
-    res.status(200).json({
-        result: testResult,
-        success: true,
-    });
-
     let memberID: string = res.locals.account?.id ?? "";
 
     if (memberID !== "") {
@@ -160,7 +155,11 @@ export async function createTestResultHandler(req, res) {
             [resultID, memberID]
         );
     }
-    return;
+
+    return res.status(200).json({
+        result: testResult,
+        success: true,
+    });
 }
 export async function loadTestResultHandler(req, res) {
     let memberID: string = res.locals.account?.id ?? "";
