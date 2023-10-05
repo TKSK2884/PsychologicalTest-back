@@ -5,6 +5,8 @@ import { connectPool } from "./db";
 export async function getUserInfo(
     accessToken: string
 ): Promise<{ nickname: string; id: string } | null> {
+    // get accountID And Nickname from access_token
+
     if (accessToken == "") {
         return null;
     }
@@ -21,40 +23,22 @@ export async function getUserInfo(
     }
 
     let userInfo: { nickname: string; id: string } = {
-        nickname: result[0].nickname ?? "",
         id: result[0].id ?? "",
+        nickname: result[0].nickname ?? "",
     };
     return userInfo;
 }
 
-export async function createToken(fetchedID: string): Promise<string> {
-    let randomizedToken: string =
-        fetchedID + Math.random().toString() + new Date().getDate().toString();
-    randomizedToken = crypto
-        .createHash("sha256")
-        .update(randomizedToken)
-        .digest("hex");
-
-    let accountID: string = fetchedID;
-
-    if (accountID == "") {
+export async function searchAccountID(userId: string): Promise<string> {
+    let linkedID: string = await searchLinkedID(userId);
+    // Search linkedID -> Search accountID And return accountID
+    if (linkedID == "") {
         return "";
     }
 
-    await connectPool.query(
-        "INSERT INTO `access_token` (`account_id`, `token`) VALUES (?,?)",
-        [accountID, randomizedToken]
-    );
-
-    return randomizedToken;
-}
-
-export async function searchAccountID(userId: string): Promise<string> {
-    let value: string = await searchLinkedID(userId);
-
     let [result] = (await connectPool.query(
         "SELECT * FROM `account` WHERE `social_linked_id` = ?",
-        [value]
+        [linkedID]
     )) as mysql.RowDataPacket[];
 
     if (result.length == 0) {
@@ -65,6 +49,12 @@ export async function searchAccountID(userId: string): Promise<string> {
 }
 
 export async function searchLinkedID(userId: string): Promise<string> {
+    // Search linkedID -> return linkedID
+
+    if (userId == "") {
+        return "";
+    }
+
     let [result] = (await connectPool.query(
         "SELECT * FROM `linked_user` WHERE `access_token` = ?",
         [userId]
@@ -74,5 +64,6 @@ export async function searchLinkedID(userId: string): Promise<string> {
         return "";
     }
     let id: string = result[0].id ?? "";
+
     return id;
 }

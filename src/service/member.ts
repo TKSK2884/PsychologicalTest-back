@@ -6,10 +6,106 @@ import {
     ERROR_DUPLICATE_DATA,
     ERROR_USER_INVALID,
     ERORR_BAD_REQUEST,
-} from "../utill/error-message";
-import { createToken } from "./userUtill";
+    ERROR_MISSING_VALUE,
+} from "../utils/errorMessage";
+import { kakaoLogin } from "../api/kakao";
+import { searchAccountID, searchLinkedID } from "./userService";
+import { generateAccessToken } from "../utils/tokenUtil";
 
 const mySalt: string | undefined = process.env.SALT;
+
+export async function kakaoTokenHandler(req, res) {
+    let code: string = req.body.code;
+
+    if ((code ?? "") == "") {
+        return res.status(400).json({
+            errorCode: ERROR_MISSING_VALUE,
+            error: "Missing value",
+        });
+    }
+
+    const tokenUrl: string = "https://kauth.kakao.com/oauth/token";
+
+    let accessToken: string = "";
+
+    let linkService: string = "kakao";
+    let userType: number = 1;
+
+    let kakaoLoginInfo = await kakaoLogin(code, tokenUrl, accessToken); // return { fetchedID: fetchedID, fetchedNickname: fetchedNickname };
+
+    if (kakaoLoginInfo == null) {
+        return res.status(400).json({
+            errorCode: ERORR_BAD_REQUEST,
+            error: "Bad request",
+        });
+    }
+
+    let fetchedID: string = "";
+    let fetchedNickname: string = "";
+
+    fetchedID = kakaoLoginInfo.id ?? "";
+    fetchedNickname = kakaoLoginInfo.nickname ?? "";
+
+    if ((fetchedID ?? "") == "" || (fetchedNickname ?? "") == "") {
+        return res.status(400).json({
+            errorCode: ERORR_BAD_REQUEST,
+            error: "Bad request",
+        });
+    }
+
+    let [result] = (await connectPool.query(
+        "SELECT * FROM `linked_user` WHERE `access_token` = ? " +
+            "AND `user_nickname` = ? AND `linked_service` = ?",
+        [fetchedID, fetchedNickname, linkService]
+    )) as mysql.RowDataPacket[];
+
+    if (result.length != 0) {
+        let id: string = await searchAccountID(fetchedID);
+        let token: string = await generateAccessToken(id);
+
+        if (id == "" || token == "") {
+            return res.status(400).json({
+                errorCode: ERORR_BAD_REQUEST,
+                error: "Bad request",
+            });
+        }
+
+        return res.status(200).json({
+            token: token,
+            success: true,
+        });
+    }
+
+    await connectPool.query(
+        "INSERT INTO `linked_user`" +
+            " (`access_token`, `user_nickname`, `linked_service`)" +
+            " VALUES (?,?,?)",
+        [fetchedID, fetchedNickname, linkService]
+    );
+
+    let socialLinkedID: string = await searchLinkedID(fetchedID);
+
+    if (socialLinkedID == "") {
+        return res.status(400).json({
+            errorCode: ERORR_BAD_REQUEST,
+            error: "Bad request",
+        });
+    }
+
+    await connectPool.query(
+        "INSERT INTO `account` " +
+            "(`social_linked_id`, `nickname` , `user_type`)" +
+            " VALUES (?,?,?)",
+        [socialLinkedID, fetchedNickname, userType]
+    );
+
+    let id: string = await searchAccountID(fetchedID);
+
+    return res.status(200).json({
+        token: await generateAccessToken(id),
+        success: true,
+    });
+}
 
 export async function loginHandler(req: Request, res: any) {
     let fetchedBody: any = req.body;
@@ -44,7 +140,7 @@ export async function loginHandler(req: Request, res: any) {
     let id: string = result[0].id;
 
     return res.status(200).json({
-        token: await createToken(id),
+        token: await generateAccessToken(id),
         success: true,
     });
 }

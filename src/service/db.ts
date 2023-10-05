@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 
 export let connectPool: mysql.Pool;
 
-export async function init() {
+export default async function init() {
     connectPool = await mysql.createPool({
         host: process.env.DB_SERVER_ADDR,
         user: process.env.DB_USER,

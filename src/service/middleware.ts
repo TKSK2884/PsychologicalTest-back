@@ -1,8 +1,8 @@
-import { getUserInfo } from "./userUtill";
+import { getUserInfo } from "./userService";
 import { connectPool } from "./db";
-import { ERROR_DB_INVALID } from "../utill/error-message";
+import { ERROR_DB_INVALID } from "../utils/errorMessage";
 
-export async function mindMiddleware(req, res, next) {
+export default async function mindMiddleware(req, res, next) {
     if (connectPool == null) {
         return res.status(500).json({
             errorCode: ERROR_DB_INVALID,

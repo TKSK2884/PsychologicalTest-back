@@ -7,4 +7,3 @@ export const ERROR_NOT_MATCHED: number = 203; //결과요소와 겹치지 않음
 
 export const ERROR_DB_INVALID: number = 301; //DB연결실패
 export const ERORR_BAD_REQUEST: number = 302; //잘못된 요청
-export const ERROR_API_KEY_INVALID: number = 303; //API키가 없음
