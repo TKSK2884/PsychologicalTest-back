@@ -11,7 +11,7 @@ import mindMiddleware from "./service/middleware";
 import { startTestHandler, loadTestListHandler } from "./service/test";
 import { testProgressUpdateHandler } from "./service/test";
 import {
-    createTestResultHandler,
+    generateTestResultHandler,
     loadTestResultHandler,
     saveTestResultHandler,
 } from "./service/testResult";
@@ -41,7 +41,7 @@ app.get("/test/list", loadTestListHandler);
 
 app.post("/test/update", testProgressUpdateHandler);
 
-app.post("/test/result", createTestResultHandler);
+app.post("/test/result", generateTestResultHandler);
 
 app.get("/test/result/history", loadTestResultHandler);
 

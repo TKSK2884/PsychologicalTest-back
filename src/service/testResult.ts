@@ -9,7 +9,7 @@ import { generatePrompt } from "./generatePrompt";
 import { ResultObject } from "../../structure/type";
 import { callOpenAIApi } from "../api/openAI";
 
-export async function createTestResultHandler(req, res) {
+export async function generateTestResultHandler(req, res) {
     let progressToken: string = req.body.progressToken ?? "";
     let selectTest: string = req.body.selectTest ?? "";
 
