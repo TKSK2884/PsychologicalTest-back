@@ -39,6 +39,8 @@ export async function callOpenAIApi(
         });
 
         testResult = completion.data.choices[0].message?.content ?? "";
+
+        return testResult;
     } catch (error) {
         if (error.response) {
             console.error(error.response.status, error.response.data);
@@ -47,6 +49,4 @@ export async function callOpenAIApi(
         }
         return null;
     }
-
-    return testResult;
 }
