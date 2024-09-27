@@ -16,7 +16,8 @@
         "mysql2": "^3.1.2",
         "openai": "^3.2.1",
         "openai-streams": "^5.1.0",
-        "upgrade": "^1.1.0"
+        "upgrade": "^1.1.0",
+        "yarn": "^1.22.22"
     },
     "devDependencies": {
         "@types/express": "^4.17.17",
