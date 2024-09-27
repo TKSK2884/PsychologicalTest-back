@@ -21,7 +21,7 @@ export async function startTestHandler(req, res) {
         [selectTest]
     )) as mysql.RowDataPacket[];
 
-    let testFile = JSON.parse(result[0].test_content);
+    let testFile: JSON = result[0].test_content;
 
     if (Object.keys(testFile).length == 0) {
         return res.status(400).json({

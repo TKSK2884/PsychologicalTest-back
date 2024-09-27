@@ -6,7 +6,7 @@ import {
     ERORR_BAD_REQUEST,
 } from "../utils/errorMessage";
 import { generatePrompt } from "./generatePrompt";
-import { ResultObject } from "../../structure/type";
+import { ResultObject, TestListObject } from "../../structure/type";
 import { callOpenAIApi } from "../api/openAI";
 
 export async function generateTestResultHandler(req, res) {
@@ -70,7 +70,9 @@ export async function generateTestResultHandler(req, res) {
         [selectTest]
     )) as mysql.RowDataPacket[];
 
-    let testFile = JSON.parse(selectTestResult[0].test_content);
+    // let testFile = JSON.parse(selectTestResult[0].test_content);
+
+    let testFile = selectTestResult[0].test_content;
 
     if (Object.keys(testFile).length == 0) {
         return res.status(400).json({
@@ -180,18 +182,8 @@ export async function loadTestResultHandler(req, res) {
         });
     }
 
-    let selectTest: string = result[0].select_test ?? "";
-
-    if (selectTest === "") {
-        return res.status(500).json({
-            errorCode: ERROR_MISSING_VALUE,
-            error: "Missing selectTest value",
-        });
-    }
-
     let [testListResult] = (await connectPool.query(
-        "SELECT `test_name` FROM `test_list` WHERE `id` = ?",
-        [selectTest]
+        "SELECT `test_name` FROM `test_list`"
     )) as mysql.RowDataPacket[];
 
     if (testListResult.length === 0) {
@@ -201,11 +193,23 @@ export async function loadTestResultHandler(req, res) {
         });
     }
 
-    let testName: string = testListResult[0].test_name;
+    let testNames: string[] = testListResult.map(
+        (testItem: TestListObject): string => {
+            return testItem.test_name;
+        }
+    );
+
+    const convertTestindex = (id: number): number => {
+        if (id - 1 < 0) {
+            return 0;
+        }
+
+        return id - 1;
+    };
 
     let contentArray: ResultObject[] = result.map((item: ResultObject) => ({
-        select_test_id: selectTest,
-        select_test: testName,
+        select_test: item.select_test,
+        select_test_name: testNames[convertTestindex(item.select_test)] ?? "",
         content: item.content,
         time_date: item.time_date,
     }));
