@@ -255,7 +255,7 @@ export async function saveTestResultHandler(req, res) {
 
     await connectPool.query(
         "INSERT INTO `test_saved_result` (`result_id`, `member_id`) VALUES (?, ?)",
-        [saveResultToken, memberID]
+        [saveResultID, memberID]
     );
 
     console.log("result is saved");
