@@ -29,9 +29,9 @@ init();
 
 app.post("/kakao/token", kakaoTokenHandler);
 
-app.post("/memeber/login", loginHandler);
+app.post("/member/login", loginHandler);
 
-app.post("/memeber/join", joinHandler);
+app.post("/member/join", joinHandler);
 
 app.get("/member/info", memberInfoHandler);
 
