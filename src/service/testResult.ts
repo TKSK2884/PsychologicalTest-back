@@ -25,11 +25,7 @@ export async function generateTestResultHandler(req, res) {
         [progressToken, selectTest]
     )) as mysql.RowDataPacket[];
 
-    console.log(result);
-
     if (result.length == 0) {
-        console.log("error");
-
         return res.status(400).json({
             errorCode: ERROR_RESULT_INVALID,
             error: "Invalid token value",
